@@ -9,6 +9,7 @@
 - 可加多个按钮，出现哪个点哪个；按钮列表带缩略图，× 删除
 - 可框选只检测的区域，点「看区域」在软件上闪红框
 - 界面显示 **本次** 和 **累计** 点击数（点完按钮消失才算一次）
+- 点了没消失就自动按 **Ctrl+Enter**：只发给这个软件，不影响你正在用的电脑（可关）
 - 单文件 exe 17MB，不依赖 OpenCV
 
 ## 下载
@@ -56,6 +57,7 @@
 |---|---|
 | `tests/e2e_background.py` 软件被遮挡时点击 | 9 秒点中 4–5 次 |
 | `tests/e2e_count.py` 计数 = 按钮消失次数 | 点 8 次消失 8 次，计数 8；按钮点了不消失（`--stuck`）计数 0 |
+| `tests/e2e_ctrl_enter.py` 点了不消失 → Ctrl+Enter | 4 次全部确认；真实 Ctrl 被按住 0 次，前台变化 0 次 |
 | `tests/e2e_focus.py` 每 10ms 采样前台窗口 | 被拉到前台 **0** 次，前台窗口变化 **0** 次 |
 | `tools/make_demo_media.py` 三个场景 | 后台 8/8、多按钮 8/8、区域内 8 次 / 区域外 0 次 |
 | numpy 匹配 vs OpenCV `TM_CCOEFF_NORMED` | 位置一致，相似度差 < 1e-6 |
@@ -66,6 +68,7 @@
 1. `PrintWindow` 截取目标窗口画面（被遮挡也行）
 2. 多尺度模板匹配（`imgmatch.py`，numpy + FFT 实现的归一化相关）
 3. `PostMessage` 给窗口投递鼠标消息，不动真实鼠标；如果软件自己跳到前台，马上把前台和层叠顺序还原
+4. Ctrl+Enter：给窗口发 `WM_ACTIVATE`（不真的激活）后投递按键；Ctrl 状态用 `AttachThreadInput` + `SetKeyboardState` 只在这个软件的线程里设，按完还原
 
 ## 自己打包
 ```

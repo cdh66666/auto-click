@@ -5,12 +5,13 @@ h2{margin:28px 30px 8px;font-weight:500}code{margin-left:30px;color:#999}
 #mid{position:absolute;top:0;bottom:0;border-left:2px dashed #555;display:none}</style>
 <h2 id="h">Claude wants to run a command</h2><code id="c">npm install (demo)</code><div id="mid"></div>
 <script>
+
 // ?btns=a.png,b.png  多个按钮轮流出现；?mode=region  左右各出一个，只算右边
 const q=new URLSearchParams(location.search);
 const srcs=(q.get('btns')||'../target.png').split(',');const region=q.get('mode')==='region';
-let n=0,L=0,R=0;
+let n=0,L=0,R=0,K=0;
 function mk(src){const i=document.createElement('img');i.className='b';i.src=src;document.body.appendChild(i);return i}
-function title(){document.title=region?`演示软件 - 区域内点击 ${R} 次，区域外 ${L} 次`:`演示软件 - 点击 ${n} 次`}
+function title(){document.title=region?`演示软件 - 区域内点击 ${R} 次，区域外 ${L} 次`:`演示软件 - 点击 ${n} 次` + (K?`（键盘 ${K}）`:'')}
 function place(b,x0,x1){b.style.left=(x0+Math.random()*Math.max(0,x1-x0-b.width))+'px';b.style.top=(130+Math.random()*(innerHeight-220))+'px';b.style.display='block'}
 if(region){
   document.getElementById('h').textContent='只点红框里的按钮';document.getElementById('c').textContent='左边的不点';
@@ -26,6 +27,8 @@ if(region){
   const show=()=>{const b=bs[k++%bs.length];place(b,20,innerWidth-20)};
   const stuck=q.get('stuck')==='1';  // ?stuck=1 按钮点了不消失（模拟点了没反应）
   bs.forEach(b=>b.onmousedown=()=>{n++;title();if(stuck)return;b.style.display='none';setTimeout(show,1000)});
+  // Ctrl+Enter 也算确认（模拟 Claude 的 Allow once  Ctrl+⏎）
+  addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey){const b=bs.find(x=>x.style.display==='block');if(b){n++;K++;title();b.style.display='none';setTimeout(show,1000)}}});
   setTimeout(show,800);
 }
 </script>

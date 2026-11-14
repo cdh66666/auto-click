@@ -251,6 +251,35 @@ def post_click(hwnd, cx, cy):
         u32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x13)  # 绝不把软件变成置顶：HWND_NOTOPMOST
 
 
+def _klp(vk, up=False):
+    return 1 | (u32.MapVirtualKeyW(vk, 0) << 16) | (0xC0000000 if up else 0)
+
+
+def send_ctrl_enter(hwnd):
+    """只给这个软件发 Ctrl+Enter：不动真实键盘，不影响别的软件，也不把它拉到前台"""
+    prev_fg = u32.GetForegroundWindow()
+    u32.PostMessageW(hwnd, 0x0006, 1, 0)   # WM_ACTIVATE：让它以为自己是活动窗口，才会收键盘
+    u32.PostMessageW(hwnd, 0x0007, 0, 0)   # WM_SETFOCUS
+    time.sleep(0.15)
+    me = k32.GetCurrentThreadId()
+    tid = u32.GetWindowThreadProcessId(hwnd, None)
+    u32.AttachThreadInput(me, tid, True)   # 只和这个软件共享按键状态
+    kb = (ctypes.c_ubyte * 256)()
+    u32.GetKeyboardState(kb)
+    old = bytes(kb)
+    kb[0x11] = kb[0xA2] = 0x80             # 这个软件里 Ctrl 视为按下
+    u32.SetKeyboardState(kb)
+    for msg, vk, up in [(0x100, 0x11, 0), (0x100, 0x0D, 0), (0x102, 0x0A, 0), (0x101, 0x0D, 1), (0x101, 0x11, 1)]:
+        u32.PostMessageW(hwnd, msg, vk, _klp(0x0D if vk == 0x0A else vk, up))
+    time.sleep(0.12)                       # 等它处理完再还原按键状态
+    u32.SetKeyboardState((ctypes.c_ubyte * 256).from_buffer_copy(old))
+    u32.AttachThreadInput(me, tid, False)
+    u32.PostMessageW(hwnd, 0x0008, 0, 0)   # WM_KILLFOCUS
+    u32.PostMessageW(hwnd, 0x0006, 0, 0)   # WM_ACTIVATE(WA_INACTIVE)
+    if u32.GetAncestor(prev_fg, 2) != hwnd:
+        restore_back(hwnd, prev_fg, None)
+
+
 def untop(hwnd):
     """去掉软件的置顶（旧版本可能误设了置顶）"""
     if hwnd and u32.GetWindowLongW(hwnd, -20) & 0x8:
@@ -277,7 +306,7 @@ def confirm_gone(hwnd, pos, wait=2.0):
     r = max(tpl.shape) / 2 if tpls else 30
     t0 = time.time()
     while time.time() - t0 < wait:
-        time.sleep(0.15)
+        time.sleep(0.03)
         sc, p2 = find(hwnd)
         if sc < THRESH or p2 is None or abs(p2[0] - pos[0]) > r or abs(p2[1] - pos[1]) > r:
             return True
@@ -304,6 +333,16 @@ def loop(status, counts):
                             save()
                             status.set(f"已点击 ({sc:.0%})")
                             time.sleep(0.5)
+                        elif cfg.get("ctrl_enter", True):
+                            send_ctrl_enter(hwnd)
+                            if confirm_gone(hwnd, pos, 2.5):
+                                cfg["total"] += 1
+                                counts["session"] += 1
+                                save()
+                                status.set("已按 Ctrl+Enter")
+                                time.sleep(0.5)
+                            else:
+                                status.set("没消失，再试")
                         else:
                             status.set("点了没消失，再点")
                     else:
@@ -346,6 +385,13 @@ def main():
 
     btn.config(command=toggle)
     btn.pack()
+    ce = tk.BooleanVar(value=cfg.get("ctrl_enter", True))
+
+    def set_ce():
+        cfg["ctrl_enter"] = ce.get()
+        save()
+
+    tk.Checkbutton(root, text="点了没消失就按 Ctrl+Enter（只发给这个软件）", variable=ce, command=set_ce).pack()
     if os.environ.get("AUTO_CLICK_AUTOSTART"):  # 演示/测试用：启动即开始
         root.after(500, toggle)
     tk.Label(root, textvariable=ctxt, font=("Microsoft YaHei", 11, "bold")).pack(pady=4)
