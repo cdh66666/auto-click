@@ -1,12 +1,30 @@
 <!doctype html><meta charset="utf-8"><title>演示软件 - 点击 0 次</title>
 <style>body{margin:0;background:#262624;color:#ddd;font:16px Segoe UI,sans-serif;overflow:hidden}
 h2{margin:28px 30px 8px;font-weight:500}code{margin-left:30px;color:#999}
-#b{position:absolute;display:none;cursor:pointer}</style>
-<h2>Claude wants to run a command</h2><code>npm install (demo)</code>
-<img id="b" src="../target.png">
+.b{position:absolute;display:none;cursor:pointer}
+#mid{position:absolute;top:0;bottom:0;border-left:2px dashed #555;display:none}</style>
+<h2 id="h">Claude wants to run a command</h2><code id="c">npm install (demo)</code><div id="mid"></div>
 <script>
-let n=0;const b=document.getElementById('b');
-function show(){b.style.left=(20+Math.random()*(innerWidth-300))+'px';b.style.top=(130+Math.random()*(innerHeight-200))+'px';b.style.display='block'}
-b.onmousedown=()=>{n++;document.title='演示软件 - 点击 '+n+' 次';b.style.display='none';setTimeout(show,1200)};
-setTimeout(show,800);
+// ?btns=a.png,b.png  多个按钮轮流出现；?mode=region  左右各出一个，只算右边
+const q=new URLSearchParams(location.search);
+const srcs=(q.get('btns')||'../target.png').split(',');const region=q.get('mode')==='region';
+let n=0,L=0,R=0;
+function mk(src){const i=document.createElement('img');i.className='b';i.src=src;document.body.appendChild(i);return i}
+function title(){document.title=region?`演示软件 - 区域内点击 ${R} 次，区域外 ${L} 次`:`演示软件 - 点击 ${n} 次`}
+function place(b,x0,x1){b.style.left=(x0+Math.random()*Math.max(0,x1-x0-b.width))+'px';b.style.top=(130+Math.random()*(innerHeight-220))+'px';b.style.display='block'}
+if(region){
+  document.getElementById('h').textContent='只点红框里的按钮';document.getElementById('c').textContent='左边的不点';
+  const m=document.getElementById('mid');m.style.left=(innerWidth/2)+'px';m.style.display='block';
+  const l=mk(srcs[0]),r=mk(srcs[0]);
+  l.onmousedown=()=>{L++;title()};
+  const showR=()=>place(r,innerWidth/2+20,innerWidth-20);
+  r.onmousedown=()=>{R++;title();r.style.display='none';setTimeout(showR,1000)};
+  setTimeout(()=>{place(l,20,innerWidth/2-20);showR()},800);
+}else{
+  const bs=srcs.map(mk);let k=0;
+  if(srcs.length>1){document.getElementById('h').textContent='随机出现不同的按钮';document.getElementById('c').textContent='出现哪个点哪个'}
+  const show=()=>{const b=bs[k++%bs.length];place(b,20,innerWidth-20)};
+  bs.forEach(b=>b.onmousedown=()=>{n++;title();b.style.display='none';setTimeout(show,1000)});
+  setTimeout(show,800);
+}
 </script>

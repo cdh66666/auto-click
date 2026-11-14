@@ -288,7 +288,7 @@ def loop(status, counts):
 
 def main():
     root = tk.Tk()
-    root.title("自动点击")
+    root.title(os.environ.get("AUTO_CLICK_TITLE", "自动点击"))  # 演示/测试用别的标题，免得和正在用的混
     try:
         root.iconbitmap(os.path.join(base, "icon.ico"))
     except Exception:
@@ -341,7 +341,36 @@ def main():
     rtxt = tk.StringVar()
 
     def showr():
-        rtxt.set(("区域: 已框定" if cfg["region"] else "区域: 整个软件界面"))
+        r = cfg["region"]
+        rtxt.set(f"区域: {r[2]}×{r[3]}" if r else "区域: 整个软件界面")
+
+    def flash_region(sec=2.5):
+        """在软件上画红框，显示框选的区域（鼠标可穿透，几秒后消失）"""
+        hwnd = find_window(cfg["proc"])
+        if not hwnd:
+            status.set("没找到 " + cfg["proc"])
+            return
+        o = W.POINT(0, 0)
+        u32.ClientToScreen(hwnd, ctypes.byref(o))
+        if cfg["region"]:
+            l, t, w, h = cfg["region"]
+        else:
+            r = W.RECT()
+            u32.GetClientRect(hwnd, ctypes.byref(r))
+            l, t, w, h = 0, 0, r.right, r.bottom
+        b = 4
+        ov = tk.Toplevel(root)
+        ov.overrideredirect(True)
+        ov.attributes("-topmost", True, "-transparentcolor", "magenta")
+        ov.geometry(f"{w + 2 * b}x{h + 2 * b}+{o.x + l - b}+{o.y + t - b}")
+        c = tk.Canvas(ov, bg="magenta", highlightthickness=0)
+        c.pack(fill="both", expand=True)
+        c.create_rectangle(b // 2, b // 2, w + b * 3 // 2, h + b * 3 // 2, outline="red", width=b)
+        ov.update()
+        hw = u32.GetParent(ov.winfo_id()) or ov.winfo_id()
+        ex = u32.GetWindowLongW(hw, -20)
+        u32.SetWindowLongW(hw, -20, ex | 0x80000 | 0x20)  # LAYERED | TRANSPARENT：点击穿透
+        ov.after(int(sec * 1000), ov.destroy)
 
     def pick(mode="region"):
         hwnd = find_window(cfg["proc"])
@@ -382,6 +411,7 @@ def main():
                     if mode == "region":
                         cfg["region"] = (l - o.x, t - o.y, w, h)  # 存成相对窗口的位置
                         save()
+                        root.after(300, flash_region)
                     else:
                         top.withdraw()
                         top.update()
@@ -418,6 +448,7 @@ def main():
     f.pack()
     tk.Button(f, text="框选区域", command=pick).pack(side="left", padx=4)
     tk.Button(f, text="整个界面", command=clear).pack(side="left", padx=4)
+    tk.Button(f, text="看区域", command=flash_region).pack(side="left", padx=4)
     f2 = tk.Frame(root)
     f2.pack(pady=4)
     tk.Button(f2, text="加按钮", command=lambda: pick("button")).pack(side="left", padx=4)
