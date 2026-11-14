@@ -12,7 +12,7 @@ subprocess.run(["taskkill", "/F", "/IM", "自动点击.exe"], capture_output=Tru
 subprocess.run([sys.executable, os.path.join("tools", "make_icon.py")], check=True)
 subprocess.run([sys.executable, "-m", "PyInstaller", "-F", "-w", "-y", "-n", "自动点击",
                 "--icon", os.path.join("assets", "icon.ico"),
-                "--add-data", "target.png;.", "--add-data", os.path.join("assets", "icon.ico") + ";.",
+                "--exclude-module", "PIL", "--exclude-module", "matplotlib", "--exclude-module", "scipy", "--add-data", "target.png;.", "--add-data", os.path.join("assets", "icon.ico") + ";.",
                 "--distpath", here, "auto_click.py"], check=True)
 shutil.rmtree("build", ignore_errors=True)
 if os.path.exists("自动点击.spec"):

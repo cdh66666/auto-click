@@ -1,12 +1,28 @@
 import ctypes, json, os, sys, threading, time
 from ctypes import wintypes as W
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
-import cv2, numpy as np
+import numpy as np
+import imgmatch as im
 import tkinter as tk
+from tkinter import ttk
 
 THRESH = 0.80
 base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-tpl = cv2.imdecode(np.fromfile(os.path.join(base, "target.png"), np.uint8), cv2.IMREAD_GRAYSCALE)
+DEFAULT_TPL = os.path.join(base, "target.png")
+CUSTOM_TPL = os.path.join(os.environ.get("APPDATA", "."), "自动点击_按钮.png")
+
+
+def load_tpl():
+    for f in (CUSTOM_TPL, DEFAULT_TPL):
+        try:
+            t = im.read_png_gray(f)
+            if t is not None:
+                return t
+        except Exception:
+            pass
+
+
+tpl = load_tpl()
 SCALES = [1.0, 0.9, 1.1, 0.8, 1.25, 0.7, 1.5]
 
 u32 = ctypes.windll.user32
@@ -52,6 +68,30 @@ def save():
         json.dump(cfg, open(CFG, "w"))
     except Exception:
         pass
+
+
+def list_apps():
+    """有可见窗口的软件进程名（给下拉选项用）"""
+    names = set()
+
+    @ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+    def cb(h, _):
+        if u32.IsWindowVisible(h) and u32.GetWindowTextLengthW(h) > 0:
+            pid = W.DWORD()
+            u32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            ph = k32.OpenProcess(0x1000, False, pid.value)
+            if ph:
+                buf = ctypes.create_unicode_buffer(520)
+                n = W.DWORD(520)
+                k32.QueryFullProcessImageNameW(ph, 0, buf, ctypes.byref(n))
+                k32.CloseHandle(ph)
+                if buf.value:
+                    names.add(os.path.basename(buf.value).lower())
+        return True
+
+    u32.EnumWindows(cb, 0)
+    names.discard("自动点击.exe")
+    return sorted(names)
 
 
 def find_window(proc):
@@ -123,22 +163,24 @@ def find(hwnd):
         l, t = max(0, l), max(0, t)
         img = img[t:t + rh, l:l + rw]
         ox, oy = l, t
-    g = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_BGRA2GRAY)
+    g = im.bgra_to_gray(img)
     sc, pos = match_gray(g)
     return sc, (None if pos is None else (ox + pos[0], oy + pos[1]))
 
 
 def match_gray(g):
-    """在灰度图里找模板，返回 (相似度, 中心点)"""
+    """在灰度图里找模板，返回 (相似度, 中心点)。先缩到一半再匹配，快很多"""
     best = (0, None)
+    k = 0.5 if min(tpl.shape) >= 24 else 1.0
+    gs = im.resize(g, k) if k != 1.0 else g.astype(np.float32)
+    m = im.Matcher(gs)
     for s in SCALES:
-        t = cv2.resize(tpl, None, fx=s, fy=s)
-        if t.shape[0] > g.shape[0] or t.shape[1] > g.shape[1]:
+        t = im.resize(tpl, s * k)
+        if t.shape[0] > gs.shape[0] or t.shape[1] > gs.shape[1] or min(t.shape) < 4:
             continue
-        res = cv2.matchTemplate(g, t, cv2.TM_CCOEFF_NORMED)
-        _, mx, _, loc = cv2.minMaxLoc(res)
+        mx, loc = m.match(t)
         if mx > best[0]:
-            best = (mx, (loc[0] + t.shape[1] / 2, loc[1] + t.shape[0] / 2))
+            best = (mx, ((loc[0] + t.shape[1] / 2) / k, (loc[1] + t.shape[0] / 2) / k))
     return best
 
 
@@ -235,7 +277,8 @@ def main():
         root.iconbitmap(os.path.join(base, "icon.ico"))
     except Exception:
         pass
-    root.geometry("260x270")
+    root.geometry("400x330")
+    root.minsize(400, 330)
     root.attributes("-topmost", True)
     if os.environ.get("AUTO_CLICK_POS"):  # 演示/测试用：指定窗口位置
         root.geometry("+" + os.environ["AUTO_CLICK_POS"].replace(",", "+"))
@@ -270,7 +313,8 @@ def main():
     row.pack(pady=6)
     tk.Label(row, text="软件").pack(side="left")
     pv = tk.StringVar(value=cfg["proc"])
-    ent = tk.Entry(row, textvariable=pv, width=16)
+    ent = ttk.Combobox(row, textvariable=pv, width=22, values=list_apps(),
+                       postcommand=lambda: ent.config(values=list_apps()))
     ent.pack(side="left", padx=4)
 
     def setproc(*_):
@@ -284,7 +328,7 @@ def main():
     def showr():
         rtxt.set("区域: 已框定" if cfg["region"] else "区域: 整个软件界面")
 
-    def pick():
+    def pick(mode="region"):
         hwnd = find_window(cfg["proc"])
         if not hwnd:
             status.set("没找到 " + cfg["proc"])
@@ -320,8 +364,23 @@ def main():
                 if w > 20 and h > 10:
                     o = W.POINT(0, 0)
                     u32.ClientToScreen(hwnd, ctypes.byref(o))
-                    cfg["region"] = (l - o.x, t - o.y, w, h)  # 存成相对窗口的位置
-                    save()
+                    if mode == "region":
+                        cfg["region"] = (l - o.x, t - o.y, w, h)  # 存成相对窗口的位置
+                        save()
+                    else:
+                        top.withdraw()
+                        top.update()
+                        time.sleep(0.4)
+                        img = capture(hwnd)  # 框选前先隐藏遮罩，再截软件画面
+                        if img is not None:
+                            x0, y0 = max(0, l - o.x), max(0, t - o.y)
+                            crop = img[y0:y0 + h, x0:x0 + w]
+                            if crop.shape[0] > 10 and crop.shape[1] > 10:
+                                if True:
+                                    im.write_png(CUSTOM_TPL, crop[:, :, 2::-1])
+                                    global tpl
+                                    tpl = load_tpl()
+                                    status.set("已换按钮")
             top.destroy()
             root.deiconify()
             showr()
@@ -343,6 +402,20 @@ def main():
     f.pack()
     tk.Button(f, text="框选区域", command=pick).pack(side="left", padx=4)
     tk.Button(f, text="整个界面", command=clear).pack(side="left", padx=4)
+    f2 = tk.Frame(root)
+    f2.pack(pady=4)
+    tk.Button(f2, text="换按钮", command=lambda: pick("button")).pack(side="left", padx=4)
+
+    def reset_btn():
+        global tpl
+        try:
+            os.remove(CUSTOM_TPL)
+        except OSError:
+            pass
+        tpl = load_tpl()
+        status.set("已恢复默认按钮")
+
+    tk.Button(f2, text="默认按钮", command=reset_btn).pack(side="left", padx=4)
     threading.Thread(target=loop, args=(status, counts), daemon=True).start()
     root.mainloop()
 
@@ -354,7 +427,7 @@ if __name__ == "__main__":
         img = capture(h)
         print(None if img is None else img.shape, None if img is None else int(img.mean()))
         if img is not None:
-            cv2.imwrite(sys.argv[2], img)
+            im.write_png(sys.argv[2], img[:, :, 2::-1])
         print(find(h))
     else:
         main()
