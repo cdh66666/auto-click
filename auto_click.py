@@ -9,20 +9,29 @@ from tkinter import ttk
 THRESH = 0.80
 base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TPL = os.path.join(base, "target.png")
-CUSTOM_TPL = os.path.join(os.environ.get("APPDATA", "."), "自动点击_按钮.png")
+TPL_DIR = os.path.join(os.environ.get("APPDATA", "."), "自动点击_按钮")  # 自己加的按钮，一个按钮一张图
 
 
-def load_tpl():
-    for f in (CUSTOM_TPL, DEFAULT_TPL):
+def load_tpls():
+    """默认按钮 + 自己加的按钮"""
+    files = [] if cfg.get("no_default") else [DEFAULT_TPL]
+    if os.path.isdir(TPL_DIR):
+        files += sorted(os.path.join(TPL_DIR, f) for f in os.listdir(TPL_DIR) if f.endswith(".png"))
+    out, paths = [], []
+    for f in files:
         try:
             t = im.read_png_gray(f)
             if t is not None:
-                return t
+                out.append(t)
+                paths.append(f)
         except Exception:
             pass
+    tpl_paths[:] = paths
+    return out
 
 
-tpl = load_tpl()
+tpl_paths = []
+tpls = []
 SCALES = [1.0, 0.9, 1.1, 0.8, 1.25, 0.7, 1.5]
 
 u32 = ctypes.windll.user32
@@ -61,6 +70,8 @@ try:
 except Exception:
     pass
 running = False
+tpls = load_tpls()
+tpl = tpls[0] if tpls else np.zeros((10, 10), np.uint8)
 
 
 def save():
@@ -169,18 +180,23 @@ def find(hwnd):
 
 
 def match_gray(g):
-    """在灰度图里找模板，返回 (相似度, 中心点)。先缩到一半再匹配，快很多"""
+    """在灰度图里找所有按钮，返回最像的 (相似度, 中心点)。先缩到一半再匹配，快很多"""
     best = (0, None)
-    k = 0.5 if min(tpl.shape) >= 24 else 1.0
+    if not tpls:
+        return best
+    k = 0.5 if min(min(t.shape) for t in tpls) >= 24 else 1.0
     gs = im.resize(g, k) if k != 1.0 else g.astype(np.float32)
     m = im.Matcher(gs)
-    for s in SCALES:
-        t = im.resize(tpl, s * k)
-        if t.shape[0] > gs.shape[0] or t.shape[1] > gs.shape[1] or min(t.shape) < 4:
-            continue
-        mx, loc = m.match(t)
-        if mx > best[0]:
-            best = (mx, ((loc[0] + t.shape[1] / 2) / k, (loc[1] + t.shape[0] / 2) / k))
+    for T in tpls:
+        for s in SCALES:
+            t = im.resize(T, s * k)
+            if t.shape[0] > gs.shape[0] or t.shape[1] > gs.shape[1] or min(t.shape) < 4:
+                continue
+            mx, loc = m.match(t)
+            if mx > best[0]:
+                best = (mx, ((loc[0] + t.shape[1] / 2) / k, (loc[1] + t.shape[0] / 2) / k))
+        if best[0] >= 0.95:
+            break
     return best
 
 
@@ -277,8 +293,7 @@ def main():
         root.iconbitmap(os.path.join(base, "icon.ico"))
     except Exception:
         pass
-    root.geometry("400x330")
-    root.minsize(400, 330)
+    root.minsize(400, 0)  # 高度随按钮数量自动变
     root.attributes("-topmost", True)
     if os.environ.get("AUTO_CLICK_POS"):  # 演示/测试用：指定窗口位置
         root.geometry("+" + os.environ["AUTO_CLICK_POS"].replace(",", "+"))
@@ -326,7 +341,7 @@ def main():
     rtxt = tk.StringVar()
 
     def showr():
-        rtxt.set("区域: 已框定" if cfg["region"] else "区域: 整个软件界面")
+        rtxt.set(("区域: 已框定" if cfg["region"] else "区域: 整个软件界面"))
 
     def pick(mode="region"):
         hwnd = find_window(cfg["proc"])
@@ -376,11 +391,12 @@ def main():
                             x0, y0 = max(0, l - o.x), max(0, t - o.y)
                             crop = img[y0:y0 + h, x0:x0 + w]
                             if crop.shape[0] > 10 and crop.shape[1] > 10:
-                                if True:
-                                    im.write_png(CUSTOM_TPL, crop[:, :, 2::-1])
-                                    global tpl
-                                    tpl = load_tpl()
-                                    status.set("已换按钮")
+                                os.makedirs(TPL_DIR, exist_ok=True)
+                                im.write_png(os.path.join(TPL_DIR, time.strftime("%Y%m%d_%H%M%S.png")), crop[:, :, 2::-1])
+                                global tpls
+                                tpls = load_tpls()
+                                status.set("已加按钮")
+                                show_btns()
             top.destroy()
             root.deiconify()
             showr()
@@ -404,18 +420,56 @@ def main():
     tk.Button(f, text="整个界面", command=clear).pack(side="left", padx=4)
     f2 = tk.Frame(root)
     f2.pack(pady=4)
-    tk.Button(f2, text="换按钮", command=lambda: pick("button")).pack(side="left", padx=4)
+    tk.Button(f2, text="加按钮", command=lambda: pick("button")).pack(side="left", padx=4)
 
     def reset_btn():
-        global tpl
-        try:
-            os.remove(CUSTOM_TPL)
-        except OSError:
-            pass
-        tpl = load_tpl()
-        status.set("已恢复默认按钮")
+        global tpls
+        import shutil
+        shutil.rmtree(TPL_DIR, ignore_errors=True)
+        cfg["no_default"] = False
+        save()
+        tpls = load_tpls()
+        status.set("已恢复默认")
+        show_btns()
 
-    tk.Button(f2, text="默认按钮", command=reset_btn).pack(side="left", padx=4)
+    tk.Button(f2, text="恢复默认", command=reset_btn).pack(side="left", padx=4)
+    bl = tk.LabelFrame(root, text="要点的按钮（× 删除）")
+    bl.pack(fill="x", padx=8, pady=6)
+    thumbs = []
+
+    def remove(path):
+        global tpls
+        if path == DEFAULT_TPL:
+            cfg["no_default"] = True
+            save()
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        tpls = load_tpls()
+        show_btns()
+
+    def show_btns():
+        for w in bl.winfo_children():
+            w.destroy()
+        thumbs.clear()
+        if not tpl_paths:
+            tk.Label(bl, text="没有按钮，点「加按钮」", fg="gray").pack(pady=6)
+        for i, path in enumerate(tpl_paths):
+            cell = tk.Frame(bl)
+            cell.grid(row=i // 2, column=i % 2, padx=6, pady=4, sticky="w")
+            try:
+                ph = tk.PhotoImage(file=path)
+                k = max(1, -(-ph.height() // 40), -(-ph.width() // 150))  # 缩到约 150x40 以内
+                ph = ph.subsample(k)
+                thumbs.append(ph)
+                tk.Label(cell, image=ph, relief="solid", bd=1).pack(side="left")
+            except Exception:
+                tk.Label(cell, text=os.path.basename(path)).pack(side="left")
+            tk.Button(cell, text="×", width=2, command=lambda p=path: remove(p)).pack(side="left", padx=2)
+
+    show_btns()
     threading.Thread(target=loop, args=(status, counts), daemon=True).start()
     root.mainloop()
 
