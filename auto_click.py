@@ -232,8 +232,8 @@ def post_click(hwnd, cx, cy):
     """向窗口发送鼠标消息：不动真实鼠标，窗口在后台也有效"""
     prev_fg = u32.GetForegroundWindow()
     above = u32.GetWindow(hwnd, 3)  # 点击前在它上面的那个窗口
-    while above and not u32.IsWindowVisible(above):
-        above = u32.GetWindow(above, 3)
+    while above and (not u32.IsWindowVisible(above) or u32.GetWindowLongW(above, -20) & 0x8):
+        above = u32.GetWindow(above, 3)  # 跳过隐藏和置顶窗口（插到置顶窗口后面会把软件也变成置顶）
     p = W.POINT(int(cx), int(cy))
     u32.ClientToScreen(hwnd, ctypes.byref(p))
     target = chromium_widget(hwnd) or deepest_child(hwnd, p)
@@ -501,6 +501,17 @@ def main():
             tk.Button(cell, text="×", width=2, command=lambda p=path: remove(p)).pack(side="left", padx=2)
 
     show_btns()
+    def keep_top():
+        """没最小化就一直在最上层（不抢键盘焦点）"""
+        try:
+            if root.state() == "normal":
+                hw = int(root.wm_frame(), 16)
+                u32.SetWindowPos(hw, -1, 0, 0, 0, 0, 0x13)  # HWND_TOPMOST, NOMOVE|NOSIZE|NOACTIVATE
+        except Exception:
+            pass
+        root.after(1000, keep_top)
+
+    keep_top()
     threading.Thread(target=loop, args=(status, counts), daemon=True).start()
     root.mainloop()
 
