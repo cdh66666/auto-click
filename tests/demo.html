@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>演示软件 - 点击 0 次</title>
+<style>body{margin:0;background:#262624;color:#ddd;font:16px Segoe UI,sans-serif;overflow:hidden}
+h2{margin:28px 30px 8px;font-weight:500}code{margin-left:30px;color:#999}
+#b{position:absolute;display:none;cursor:pointer}</style>
+<h2>Claude wants to run a command</h2><code>npm install (demo)</code>
+<img id="b" src="../target.png">
+<script>
+let n=0;const b=document.getElementById('b');
+function show(){b.style.left=(20+Math.random()*(innerWidth-300))+'px';b.style.top=(130+Math.random()*(innerHeight-200))+'px';b.style.display='block'}
+b.onmousedown=()=>{n++;document.title='演示软件 - 点击 '+n+' 次';b.style.display='none';setTimeout(show,1200)};
+setTimeout(show,800);
+</script>
