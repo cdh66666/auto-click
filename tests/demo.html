@@ -24,7 +24,8 @@ if(region){
   const bs=srcs.map(mk);let k=0;
   if(srcs.length>1){document.getElementById('h').textContent='随机出现不同的按钮';document.getElementById('c').textContent='出现哪个点哪个'}
   const show=()=>{const b=bs[k++%bs.length];place(b,20,innerWidth-20)};
-  bs.forEach(b=>b.onmousedown=()=>{n++;title();b.style.display='none';setTimeout(show,1000)});
+  const stuck=q.get('stuck')==='1';  // ?stuck=1 按钮点了不消失（模拟点了没反应）
+  bs.forEach(b=>b.onmousedown=()=>{n++;title();if(stuck)return;b.style.display='none';setTimeout(show,1000)});
   setTimeout(show,800);
 }
 </script>

@@ -263,6 +263,18 @@ def restore_back(hwnd, prev_fg, above):
                 u32.SetWindowPos(hwnd, above, 0, 0, 0, 0, 0x13)  # NOMOVE|NOSIZE|NOACTIVATE
 
 
+def confirm_gone(hwnd, pos, wait=2.0):
+    """点完后按钮消失（或那个位置不再是按钮）才算点成功"""
+    r = max(tpl.shape) / 2 if tpls else 30
+    t0 = time.time()
+    while time.time() - t0 < wait:
+        time.sleep(0.15)
+        sc, p2 = find(hwnd)
+        if sc < THRESH or p2 is None or abs(p2[0] - pos[0]) > r or abs(p2[1] - pos[1]) > r:
+            return True
+    return False
+
+
 def loop(status, counts):
     while True:
         if running:
@@ -274,11 +286,14 @@ def loop(status, counts):
                     sc, pos = find(hwnd)
                     if sc >= THRESH:
                         post_click(hwnd, *pos)
-                        cfg["total"] += 1
-                        counts["session"] += 1
-                        save()
-                        status.set(f"已点击 ({sc:.0%})")
-                        time.sleep(1.0)
+                        if confirm_gone(hwnd, pos):
+                            cfg["total"] += 1
+                            counts["session"] += 1
+                            save()
+                            status.set(f"已点击 ({sc:.0%})")
+                            time.sleep(0.5)
+                        else:
+                            status.set("点了没消失，再点")
                     else:
                         status.set(f"找按钮中… 最高 {sc:.0%}")
             except Exception as e:
