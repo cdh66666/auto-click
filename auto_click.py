@@ -231,6 +231,7 @@ def deepest_child(hwnd, p):
 def post_click(hwnd, cx, cy):
     """向窗口发送鼠标消息：不动真实鼠标，窗口在后台也有效"""
     prev_fg = u32.GetForegroundWindow()
+    was_top = bool(u32.GetWindowLongW(hwnd, -20) & 0x8)
     above = u32.GetWindow(hwnd, 3)  # 点击前在它上面的那个窗口
     while above and (not u32.IsWindowVisible(above) or u32.GetWindowLongW(above, -20) & 0x8):
         above = u32.GetWindow(above, 3)  # 跳过隐藏和置顶窗口（插到置顶窗口后面会把软件也变成置顶）
@@ -246,6 +247,14 @@ def post_click(hwnd, cx, cy):
     u32.PostMessageW(target, 0x0202, 0, lp)          # LBUTTONUP
     if u32.GetAncestor(prev_fg, 2) != hwnd:
         restore_back(hwnd, prev_fg, above)
+    if not was_top and u32.GetWindowLongW(hwnd, -20) & 0x8:
+        u32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x13)  # 绝不把软件变成置顶：HWND_NOTOPMOST
+
+
+def untop(hwnd):
+    """去掉软件的置顶（旧版本可能误设了置顶）"""
+    if hwnd and u32.GetWindowLongW(hwnd, -20) & 0x8:
+        u32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x13)
 
 
 def restore_back(hwnd, prev_fg, above):
@@ -283,6 +292,9 @@ def loop(status, counts):
                 if not hwnd:
                     status.set("没找到 " + cfg["proc"])
                 else:
+                    if hwnd != counts.get("untopped"):
+                        untop(hwnd)
+                        counts["untopped"] = hwnd
                     sc, pos = find(hwnd)
                     if sc >= THRESH:
                         post_click(hwnd, *pos)
@@ -444,12 +456,13 @@ def main():
                                 show_btns()
             top.destroy()
             root.deiconify()
+            root.attributes("-topmost", True)
             showr()
 
         cv.bind("<ButtonPress-1>", down)
         cv.bind("<B1-Motion>", move)
         cv.bind("<ButtonRelease-1>", up)
-        top.bind("<Escape>", lambda e: (top.destroy(), root.deiconify()))
+        top.bind("<Escape>", lambda e: (top.destroy(), root.deiconify(), root.attributes("-topmost", True)))
         top.focus_force()
 
     def clear():
@@ -524,7 +537,7 @@ def main():
                 u32.SetWindowPos(hw, -1, 0, 0, 0, 0, 0x13)  # HWND_TOPMOST, NOMOVE|NOSIZE|NOACTIVATE
         except Exception:
             pass
-        root.after(1000, keep_top)
+        root.after(200, keep_top)
 
     keep_top()
     threading.Thread(target=loop, args=(status, counts), daemon=True).start()
